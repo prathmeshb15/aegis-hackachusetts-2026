@@ -42,11 +42,22 @@ tr.chosen td{background:#14304a}
 .kbd{font-family:ui-monospace,monospace;font-size:11px;border:1px solid #40516a;border-radius:4px;padding:1px 5px}
 .hero{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
 button.demo{background:linear-gradient(135deg,#1776b4,#6a4fc9);border-color:#8a74ff;font-weight:800;font-size:15px;padding:11px 18px}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}
-.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-.stat b{display:block;font-size:28px;letter-spacing:-0.5px;color:#edf4ff}.stat b .ok{font-size:28px}
-.stat span{font-size:13px;color:#c2d0e2}
-.stat-note{font-size:12px;color:var(--muted);margin:8px 0 0}
+.eval{margin-top:16px;background:linear-gradient(180deg,#0f1d31,#0c1727);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.eval-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.kicker{font-size:12px;letter-spacing:1px;font-weight:700;color:var(--muted);margin:0}
+.headline{font-size:30px;font-weight:900;letter-spacing:-0.5px;margin:4px 0 2px;color:#edf4ff}.headline .ok{color:var(--ok)}
+.subline{font-size:15px;color:#c2d0e2;margin:0}.subline b{color:var(--ok)}
+.cmp{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}
+.ctl{background:#0b1726;border:1px solid #29415b;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.ctl.best{border-color:#4bdfad;box-shadow:0 0 0 1px #4bdfad33 inset}
+.ctl h3{margin:0;font-size:15px;color:#edf4ff;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ctl p.what{margin:0;font-size:12.5px;line-height:1.45;color:#aebfd4;min-height:54px}
+.row{font-size:12.5px;color:#c2d0e2}.row .num{display:flex;justify-content:space-between;gap:8px}.row .num b{font-size:18px;color:#edf4ff;font-variant-numeric:tabular-nums}
+.track{height:8px;border-radius:6px;background:#1a2a40;overflow:hidden;margin-top:4px}
+.fill{height:100%;border-radius:6px}.fill.bad{background:#ff7d83}.fill.good{background:#4bdfad}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;font-size:12.5px;line-height:1.45;color:#c2d0e2}
+.facts div{border-left:3px solid #2f4766;padding:2px 0 2px 10px}.facts b{color:#edf4ff}
+.stat-note{font-size:12px;color:var(--muted);margin:10px 0 0;line-height:1.5}
 .guide{display:none;margin:12px 0;padding:12px 14px;border:1px solid #8a74ff;background:#17163a;border-radius:12px;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap}
 .guide.on{display:flex}.guide h3{margin:0 0 4px;color:#d9d0ff;font-size:15px}.guide p{margin:0;font-size:14px;line-height:1.45;color:#e2e8f3;max-width:900px}
 .guide .step{font-size:11px;color:#b9a9ff;font-weight:700;letter-spacing:1px}
@@ -57,7 +68,7 @@ button.demo{background:linear-gradient(135deg,#1776b4,#6a4fc9);border-color:#8a7
 .flow div{background:#0b1726;border:1px solid #29415b;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.45;color:#c2d0e2}
 .flow b{display:block;color:#8dd0ff;font-size:14px;margin-bottom:3px}
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:13px;line-height:1.5;color:#c2d0e2}.cols ul{margin:6px 0 0;padding-left:18px}
-@media(max-width:1000px){.split,.lower,.cols{grid-template-columns:1fr}.metrics,.flow{grid-template-columns:repeat(2,1fr)}.stats{grid-template-columns:1fr}}
+@media(max-width:1000px){.split,.lower,.cols{grid-template-columns:1fr}.metrics,.flow{grid-template-columns:repeat(2,1fr)}.cmp,.facts{grid-template-columns:1fr}.ctl p.what{min-height:0}.headline{font-size:24px}}
 </style>
 </head>
 <body>
@@ -75,14 +86,45 @@ button.demo{background:linear-gradient(135deg,#1776b4,#6a4fc9);border-color:#8a7
   </div>
   <small id="demo-hint">One click, under a minute. It pauses at the moments that matter: AEGIS intervenes, the baseline collides, AEGIS arrives.</small>
 
-  <section aria-labelledby="hs">
-    <h2 id="hs" class="muted" style="font-size:12px;letter-spacing:1px;margin-top:14px;font-weight:700">HELD-OUT BENCHMARK · CONTROLLED SYNTHETIC SIMULATION</h2>
-    <div class="stats">
-      <div class="stat"><b class="ok">92.6% fewer</b><span>collisions: 403 baseline → 30 with AEGIS</span></div>
-      <div class="stat"><b>390 / 450</b><span>missions completed with AEGIS (baseline: 47 / 450)</span></div>
-      <div class="stat"><b>15</b><span>scenario types, from pedestrian crossings to unmapped pallets and sensor noise</span></div>
+  <section class="eval" aria-labelledby="hs">
+    <div class="eval-head">
+      <div>
+        <p class="kicker">THREE-WAY SEEDED EVALUATION · CONTROLLED ADVERSARIAL 2D SIMULATION</p>
+        <h2 id="hs" class="headline"><span class="ok">59.5% fewer collisions</span> than a reactive controller with the same sensors</h2>
+        <p class="subline">And <b>92.6% fewer</b> than basic map-following navigation.</p>
+      </div>
+      <small>Seeds 1000–1029 · 15 scenario types · 450 episodes per controller</small>
     </div>
-    <p class="stat-note">Seeds 1000–1029 (450 paired episodes), run after controller parameters were frozen on separate development seeds. These are simulation results, not real-world safety performance. All 30 AEGIS collisions come from the <i>ambush</i> type, which is deliberately unavoidable. The 30 <i>dead_end</i> runs end in a safe stop without completing the mission. Many scenarios are timed adversarially against the baseline.</p>
+
+    <div class="cmp">
+      <article class="ctl" aria-labelledby="c-basic">
+        <h3 id="c-basic">Basic <span class="pill">no sensing</span></h3>
+        <p class="what">Follows an A* route planned on the prior warehouse map. It doesn't sense people or unmapped obstacles.</p>
+        <div class="row"><div class="num"><span>Collisions</span><b>403 / 450</b></div><div class="track" aria-hidden="true"><div class="fill bad" style="width:89.6%"></div></div></div>
+        <div class="row"><div class="num"><span>Missions completed</span><b>47 / 450</b></div><div class="track" aria-hidden="true"><div class="fill good" style="width:10.4%"></div></div></div>
+      </article>
+      <article class="ctl" aria-labelledby="c-react">
+        <h3 id="c-react">Reactive <span class="pill">senses &amp; reacts</span></h3>
+        <p class="what">Adds the same sensing and A* replanning as AEGIS, then reacts to what it sees right now: braking-distance limits, separation-based slowdown, sidestepping and emergency braking.</p>
+        <div class="row"><div class="num"><span>Collisions</span><b>74 / 450</b></div><div class="track" aria-hidden="true"><div class="fill bad" style="width:16.4%"></div></div></div>
+        <div class="row"><div class="num"><span>Missions completed</span><b>342 / 450</b></div><div class="track" aria-hidden="true"><div class="fill good" style="width:76%"></div></div></div>
+        <div class="row muted">4 timeouts · 30 safe stops (no route)</div>
+      </article>
+      <article class="ctl best" aria-labelledby="c-aegis">
+        <h3 id="c-aegis">AEGIS <span class="pill st-ok">predicts &amp; verifies</span></h3>
+        <p class="what">Uses the same sensing and replanning, and also forecasts each person 2 s ahead. It only sends a command once it has checked the robot could still stop safely.</p>
+        <div class="row"><div class="num"><span>Collisions</span><b>30 / 450</b></div><div class="track" aria-hidden="true"><div class="fill bad" style="width:6.7%"></div></div></div>
+        <div class="row"><div class="num"><span>Missions completed</span><b>390 / 450</b></div><div class="track" aria-hidden="true"><div class="fill good" style="width:86.7%"></div></div></div>
+        <div class="row muted">0 timeouts · 30 safe stops (no route)</div>
+      </article>
+    </div>
+
+    <div class="facts">
+      <div><b>Paired outcomes, Reactive vs AEGIS:</b> 44 episodes where only Reactive collided, <b>0</b> where only AEGIS collided, and 30 where both collided. All 30 are the <i>ambush</i> scenario, which is designed to be physically unavoidable.</div>
+      <div><b>Same information:</b> Reactive and AEGIS share identical perception (range, occlusion, sensor noise), tracking and A* replanning. AEGIS additionally evaluates predicted collision risk to select safer interventions.</div>
+      <div><b>Safety costs time:</b> mean completion time was 8.47 s for Reactive and 8.68 s for AEGIS, each over its own completed missions. In development runs AEGIS also stopped more often when no stop was strictly needed.</div>
+    </div>
+    <p class="stat-note">Fixed result, measured offline with the command-line benchmark (<code>python -m aegis --three-way --start 1000 --count 30</code>). The browser does not recompute it. This is a deliberately adversarial, controlled 2D simulation, not demonstrated real-world safety. Pedestrians are scripted and never yield. Seeds 1000–1029 were held out from Reactive tuning, but they had been used before in the original AEGIS evaluation. For Reactive and AEGIS, the 30 <i>dead_end</i> episodes are safe stops, not completed missions. Basic collides in them.</p>
   </section>
 
   <div class="guide" id="guide" role="status" aria-live="polite">
@@ -177,7 +219,7 @@ button.demo{background:linear-gradient(135deg,#1776b4,#6a4fc9);border-color:#8a7
 
   <section class="card bench" aria-labelledby="hbm">
     <div class="head" style="gap:12px;flex-wrap:wrap">
-      <div><h2 id="hbm">Paired benchmark</h2><small>Every row runs baseline and AEGIS on identical seeded scenarios. Computed live on the server.</small></div>
+      <div><h2 id="hbm">Interactive Basic vs AEGIS benchmark</h2><small>Computed live on the server when you press the button. Each row runs Basic and AEGIS on identical seeded scenarios. This is the original two-way experiment; Reactive isn't included. The three-way result above is a fixed offline measurement.</small></div>
       <div style="display:flex;gap:8px;align-items:center"><label class="muted" style="font-size:12px">Pairs/type <select id="bcount"><option>5</option><option selected>10</option><option>20</option><option>30</option></select></label><button id="bench">Run benchmark</button></div>
     </div>
     <div id="results" class="muted">Not run yet.</div>
