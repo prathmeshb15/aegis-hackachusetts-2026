@@ -40,7 +40,24 @@ tr.chosen td{background:#14304a}
 .sw{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px}
 .bench{margin-top:16px}.bench table td,.bench table th{padding:6px 7px}
 .kbd{font-family:ui-monospace,monospace;font-size:11px;border:1px solid #40516a;border-radius:4px;padding:1px 5px}
-@media(max-width:1000px){.split,.lower{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}
+.hero{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
+button.demo{background:linear-gradient(135deg,#1776b4,#6a4fc9);border-color:#8a74ff;font-weight:800;font-size:15px;padding:11px 18px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.stat b{display:block;font-size:28px;letter-spacing:-0.5px;color:#edf4ff}.stat b .ok{font-size:28px}
+.stat span{font-size:13px;color:#c2d0e2}
+.stat-note{font-size:12px;color:var(--muted);margin:8px 0 0}
+.guide{display:none;margin:12px 0;padding:12px 14px;border:1px solid #8a74ff;background:#17163a;border-radius:12px;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap}
+.guide.on{display:flex}.guide h3{margin:0 0 4px;color:#d9d0ff;font-size:15px}.guide p{margin:0;font-size:14px;line-height:1.45;color:#e2e8f3;max-width:900px}
+.guide .step{font-size:11px;color:#b9a9ff;font-weight:700;letter-spacing:1px}
+.spot{outline:3px solid var(--spot,#8a74ff);outline-offset:2px;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{outline-color:transparent}}
+@media (prefers-reduced-motion:reduce){.spot{animation:none}}
+.arch{margin-top:16px}.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0}
+.flow div{background:#0b1726;border:1px solid #29415b;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.45;color:#c2d0e2}
+.flow b{display:block;color:#8dd0ff;font-size:14px;margin-bottom:3px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:13px;line-height:1.5;color:#c2d0e2}.cols ul{margin:6px 0 0;padding-left:18px}
+@media(max-width:1000px){.split,.lower,.cols{grid-template-columns:1fr}.metrics,.flow{grid-template-columns:repeat(2,1fr)}.stats{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -49,8 +66,29 @@ tr.chosen td{background:#14304a}
   <small>HACKACHUSETTS 2026 · ROBOTICS &amp; HARDWARE</small>
 </header>
 <main>
-  <h1>Predict failure. Protect the mission.</h1>
-  <p class="muted" style="margin:0">Same seeded warehouse, same pedestrians, same robot dynamics. Left: nominal autonomy stack alone. Right: with the AEGIS predictive safety supervisor.</p>
+  <div class="hero">
+    <div>
+      <h1>Predict failure. Protect the mission.</h1>
+      <p class="muted" style="margin:0">Same seeded warehouse, same pedestrians, same robot dynamics. Left: nominal autonomy stack alone. Right: with the AEGIS predictive safety supervisor.</p>
+    </div>
+    <button class="demo" id="demo" aria-describedby="demo-hint">▶ Guided demo · pedestrian crossing</button>
+  </div>
+  <small id="demo-hint">One click, under a minute. It pauses at the moments that matter: AEGIS intervenes, the baseline collides, AEGIS arrives.</small>
+
+  <section aria-labelledby="hs">
+    <h2 id="hs" class="muted" style="font-size:12px;letter-spacing:1px;margin-top:14px;font-weight:700">HELD-OUT BENCHMARK · CONTROLLED SYNTHETIC SIMULATION</h2>
+    <div class="stats">
+      <div class="stat"><b class="ok">92.6% fewer</b><span>collisions: 403 baseline → 30 with AEGIS</span></div>
+      <div class="stat"><b>390 / 450</b><span>missions completed with AEGIS (baseline: 47 / 450)</span></div>
+      <div class="stat"><b>15</b><span>scenario types, from pedestrian crossings to unmapped pallets and sensor noise</span></div>
+    </div>
+    <p class="stat-note">Seeds 1000–1029 (450 paired episodes), run after controller parameters were frozen on separate development seeds. These are simulation results, not real-world safety performance. All 30 AEGIS collisions come from the <i>ambush</i> type, which is deliberately unavoidable. The 30 <i>dead_end</i> runs end in a safe stop without completing the mission. Many scenarios are timed adversarially against the baseline.</p>
+  </section>
+
+  <div class="guide" id="guide" role="status" aria-live="polite">
+    <div><div class="step" id="g-step"></div><h3 id="g-title"></h3><p id="g-text"></p></div>
+    <div style="display:flex;gap:8px"><button class="primary" id="g-next">Continue ▶</button><button id="g-exit">Exit demo</button></div>
+  </div>
 
   <div class="bar" role="toolbar" aria-label="Scenario controls">
     <label>Scenario<select id="scenario" aria-label="Scenario type"></select></label>
@@ -73,12 +111,12 @@ tr.chosen td{background:#14304a}
   <p id="desc" class="muted" style="margin:-4px 0 12px;font-size:13px"></p>
 
   <div class="split">
-    <section class="card" aria-labelledby="hb">
+    <section class="card" id="card-b" aria-labelledby="hb">
       <div class="head"><h2 id="hb">Baseline <span class="muted" style="font-weight:400">· A* on prior map, no supervisor</span></h2><span id="st-b" class="pill">READY</span></div>
       <canvas id="cv-b" width="720" height="600" role="img" aria-label="Baseline robot simulation"></canvas>
       <div class="metrics" id="m-b"></div>
     </section>
-    <section class="card" aria-labelledby="ha">
+    <section class="card" id="card-a" aria-labelledby="ha">
       <div class="head"><h2 id="ha">AEGIS <span class="muted" style="font-weight:400">· predictive supervisor + replanning</span></h2><span id="st-a" class="pill">READY</span></div>
       <canvas id="cv-a" width="720" height="600" role="img" aria-label="AEGIS robot simulation"></canvas>
       <div class="metrics" id="m-a"></div>
@@ -108,6 +146,34 @@ tr.chosen td{background:#14304a}
       <ul id="events"></ul>
     </section>
   </div>
+
+  <section class="card arch" aria-labelledby="harch">
+    <h2 id="harch">How AEGIS works</h2>
+    <p class="muted" style="font-size:13px;margin:6px 0 0">AEGIS sits between the robot's planner and its motors. It doesn't replace the autonomy stack. Every 100 ms it asks one question: <i>if I send this command, can the robot still stop safely, whatever the people nearby do next?</i></p>
+    <div class="flow">
+      <div><b>1 · Perceive</b>Tracks people, forklifts and pallets within sensor range. Shelves block line of sight, so hidden pedestrians appear late.</div>
+      <div><b>2 · Forecast</b>Predicts each object 2 s ahead. The uncertainty disk grows with lookahead time, sensor noise and how confident the velocity estimate is.</div>
+      <div><b>3 · Verify</b>Simulates candidate commands (proceed, slow, stop, evade, retreat) with the robot's real braking limit, then keeps the first one that preserves clearance.</div>
+      <div><b>4 · Act or replan</b>Sends the verified command. If the route is blocked it replans with A*. If nothing is safe, it takes the best brake/evade manoeuvre and logs that openly.</div>
+    </div>
+    <div class="cols">
+      <div><b style="color:#edf4ff">Where this approach could apply</b>
+        <ul>
+          <li>Warehouse and logistics robots sharing aisles with staff and forklifts</li>
+          <li>Hospital and hotel delivery robots in busy corridors</li>
+          <li>Factory tuggers and AGVs at blind intersections</li>
+          <li>A transparent, auditable layer on top of existing navigation stacks, explaining <i>why</i> the robot slowed down</li>
+        </ul>
+      </div>
+      <div><b style="color:#edf4ff">What it is and isn't</b>
+        <ul>
+          <li>It is a rule-based, physics-checked safety filter that you can inspect frame by frame.</li>
+          <li>It is not machine learning, not certified safety software, and not tested on a physical robot.</li>
+          <li>Pedestrians here are scripted and never yield. Real deployment would need real sensors, hardware validation and safety certification.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
 
   <section class="card bench" aria-labelledby="hbm">
     <div class="head" style="gap:12px;flex-wrap:wrap">
@@ -227,8 +293,73 @@ function setPlaying(p){
   if (timer) clearInterval(timer);timer = null;
   if (p){
     if (frame >= maxFrame) frame = 0;
-    timer = setInterval(() => {if (frame < maxFrame){frame++;render();} else setPlaying(false);}, 100 / Number($('#speed').value));
+    timer = setInterval(() => {if (frame < maxFrame){frame++;render();checkTour();} else setPlaying(false);}, 100 / Number($('#speed').value));
   }
+}
+
+// ---------------------------------------------------------------- guided demo
+// Milestones come from the replay data itself (never hard-coded frames), so
+// the captions always match what the simulation actually did.
+let tour = null;
+function spotlight(side, color){
+  ['#card-a', '#card-b'].forEach(id => $(id).classList.remove('spot'));
+  if (side){const c = $(side === 'a' ? '#card-a' : '#card-b');c.style.setProperty('--spot', color);c.classList.add('spot');}
+}
+function endTour(){tour = null;$('#guide').classList.remove('on');spotlight(null);}
+function showStep(st){
+  $('#g-step').textContent = `STEP ${tour.i + 1} OF ${tour.steps.length}`;
+  $('#g-title').textContent = st.title;$('#g-text').textContent = st.text;
+  $('#g-next').textContent = tour.i === tour.steps.length - 1 ? 'Finish ✓' : 'Continue ▶';
+  $('#guide').classList.add('on');spotlight(st.side, st.color);
+}
+function checkTour(){
+  if (!tour || tour.paused) return;
+  const st = tour.steps[tour.i];
+  if (st && frame >= st.frame){frame = st.frame;render();setPlaying(false);tour.paused = true;showStep(st);}
+}
+function buildTour(){
+  const firstIdx = (states, pred) => states.findIndex(pred);
+  const det = data.aegis.events.find(e => e.type === 'DETECT');
+  const steps = [{frame: 0, side: null, title: 'Same warehouse, two robots',
+    text: `Both robots get the identical seeded scenario: same layout, same pedestrian, same physics. The baseline (left) follows its A* plan blindly. AEGIS (right) adds predictive supervision.` +
+      (det && det.t > 0 ? ` AEGIS cannot see the pedestrian until t = ${det.t.toFixed(1)} s, because the shelves block its view or the pedestrian is out of sensor range.` : '')}];
+  const iA = firstIntervention;
+  if (iA > 0){
+    const d = data.aegis.states[iA].decision;
+    steps.push({frame: iA, side: 'a', color: '#f0bc58', title: `AEGIS intervenes: ${d.action}`,
+      text: `${d.rationale} The purple line is the manoeuvre AEGIS verified. The dashed disks are where the pedestrian could be over the next 2 s.`});
+  }
+  const iC = firstIdx(data.baseline.states, s => s.outcome === 'collision');
+  if (iC >= 0){
+    const c = data.baseline.states[iC].collision;
+    steps.push({frame: iC, side: 'b', color: '#ff7d83', title: 'Baseline collides',
+      text: `The unsupervised robot hits ${c.with} at ${c.robot_speed.toFixed(2)} m/s. It never saw the pedestrian coming, so it never slowed down.`});
+  }
+  const iG = firstIdx(data.aegis.states, s => s.outcome === 'completed');
+  if (iG >= 0){
+    steps.push({frame: iG, side: 'a', color: '#4bdfad', title: 'AEGIS reaches the goal safely',
+      text: `Mission completed in ${data.aegis.states[iG].t.toFixed(1)} s` +
+        (data.aegis.states[iG].min_clearance_dynamic === null ? '.' : ` with minimum clearance ${data.aegis.states[iG].min_clearance_dynamic.toFixed(2)} m to the pedestrian.`) + ` AEGIS gave up a little time to avoid the collision. Try other scenarios, or the benchmark below.`});
+  }
+  steps.sort((a, b) => a.frame - b.frame);
+  return {steps, i: 0, paused: false};
+}
+async function startDemo(){
+  endTour();
+  $('#scenario').value = 'crossing';$('#seed').value = 7;$('#speed').value = '1';
+  await load();
+  if (!data || data.scenario.type !== 'crossing') return;
+  setPlaying(false);frame = 0;render();
+  tour = buildTour();tour.paused = true;showStep(tour.steps[0]);
+  $('#guide').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+function nextStep(){
+  if (!tour) return;
+  tour.i++;tour.paused = false;spotlight(null);
+  if (tour.i >= tour.steps.length){endTour();return;}
+  $('#guide').classList.remove('on');
+  if (frame >= maxFrame) return endTour();
+  setPlaying(true);checkTour();
 }
 
 async function load(){
@@ -263,7 +394,7 @@ async function bench(){
     $('#results').innerHTML = `<table><thead><tr><th>Scenario</th><th>Category</th><th>Baseline collisions</th><th>AEGIS collisions</th><th>Baseline completed</th><th>AEGIS completed</th><th>AEGIS timeouts</th><th>AEGIS safe stop (no path)</th><th>Pairs AEGIS avoided a baseline collision</th><th>Both collided</th><th>AEGIS-only collision</th><th>AEGIS mean time (completed)</th></tr></thead><tbody>` +
       d.results.map(x => `<tr><td><a href="#" data-s="${x.scenario}" style="color:#8dd0ff">${x.scenario}</a></td><td>${x.category}</td><td class="num">${f(x.baseline.collisions, x.pairs)}</td><td class="num ${x.aegis.collisions ? 'bad' : 'ok'}">${f(x.aegis.collisions, x.pairs)}</td><td class="num">${f(x.baseline.completed, x.pairs)}</td><td class="num">${f(x.aegis.completed, x.pairs)}</td><td class="num">${x.aegis.timeouts}</td><td class="num">${x.aegis.safe_stops_no_path}</td><td class="num">${x.paired.aegis_safe_where_baseline_collided}</td><td class="num">${x.paired.both_collided}</td><td class="num">${x.paired.aegis_only_collided}</td><td class="num">${x.aegis.mean_time_completed ?? '—'}${x.aegis.mean_time_completed ? ' s' : ''}</td></tr>`).join('') +
       `</tbody></table><p class="muted" style="font-size:12px">Totals over ${d.totals.pairs} pairs — baseline collisions ${d.totals.baseline_collisions}, AEGIS collisions ${d.totals.aegis_collisions}; completed ${d.totals.baseline_completed} vs ${d.totals.aegis_completed}. ${esc(d.method)}</p>`;
-    document.querySelectorAll('#results a[data-s]').forEach(a => a.onclick = ev => {ev.preventDefault();$('#scenario').value = a.dataset.s;$('#seed').value = 1000;load();window.scrollTo({top: 0, behavior: 'smooth'});});
+    document.querySelectorAll('#results a[data-s]').forEach(a => a.onclick = ev => {ev.preventDefault();endTour();$('#scenario').value = a.dataset.s;$('#seed').value = 1000;load();window.scrollTo({top: 0, behavior: 'smooth'});});
   } catch (e){
     $('#results').textContent = 'Benchmark failed: ' + e.message;
   } finally {btn.disabled = false;btn.textContent = 'Run benchmark';}
@@ -278,21 +409,24 @@ async function init(){
   load();
 }
 
-$('#run').onclick = load;
-$('#scenario').onchange = load;
-$('#seed').onchange = load;
-$('#dice').onclick = () => {$('#seed').value = Math.floor(Math.random() * 100000);load();};
-$('#play').onclick = () => setPlaying(!playing);
-$('#back').onclick = () => {setPlaying(false);frame = Math.max(0, frame - 1);render();};
-$('#fwd').onclick = () => {setPlaying(false);frame = Math.min(maxFrame, frame + 1);render();};
-$('#jump').onclick = () => {setPlaying(false);if (firstIntervention > 0){frame = Math.max(0, firstIntervention - 1);render();} else $('#rationale').textContent = 'AEGIS never intervened in this episode.';};
-$('#scrub').oninput = e => {setPlaying(false);frame = Number(e.target.value);render();};
+$('#run').onclick = () => {endTour();load();};
+$('#scenario').onchange = () => {endTour();load();};
+$('#seed').onchange = () => {endTour();load();};
+$('#dice').onclick = () => {endTour();$('#seed').value = Math.floor(Math.random() * 100000);load();};
+$('#demo').onclick = startDemo;
+$('#g-next').onclick = nextStep;
+$('#g-exit').onclick = endTour;
+$('#play').onclick = () => {if (tour && tour.paused) return nextStep();setPlaying(!playing);};
+$('#back').onclick = () => {endTour();setPlaying(false);frame = Math.max(0, frame - 1);render();};
+$('#fwd').onclick = () => {endTour();setPlaying(false);frame = Math.min(maxFrame, frame + 1);render();};
+$('#jump').onclick = () => {endTour();setPlaying(false);if (firstIntervention > 0){frame = Math.max(0, firstIntervention - 1);render();} else $('#rationale').textContent = 'AEGIS never intervened in this episode.';};
+$('#scrub').oninput = e => {endTour();setPlaying(false);frame = Number(e.target.value);render();};
 $('#speed').onchange = () => {if (playing) setPlaying(true);};
 ['#showForecast', '#showPlan', '#showSensor'].forEach(id => $(id).onchange = render);
 $('#bench').onclick = bench;
 document.addEventListener('keydown', e => {
   if (['INPUT', 'SELECT'].includes(document.activeElement.tagName)) return;
-  if (e.code === 'Space'){e.preventDefault();setPlaying(!playing);}
+  if (e.code === 'Space'){e.preventDefault();$('#play').click();}
   if (e.code === 'ArrowRight'){$('#fwd').click();}
   if (e.code === 'ArrowLeft'){$('#back').click();}
 });
