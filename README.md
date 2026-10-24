@@ -38,7 +38,7 @@ Runtime-only install (for hosting): `pip install -r requirements.txt`.
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The latest run gave **81 passed** in about 20 s:
+The latest run on `feature/reactive-baseline` (in a Windows terminal) gave **108 passed** in 19.1 s. This includes all 81 original tests:
 
 | File | What it checks |
 |---|---|
@@ -47,6 +47,7 @@ The latest run gave **81 passed** in about 20 s:
 | `tests/test_adversarial.py` | one paired test per scenario type (15), checking an identical environment and mover positions, that the case really challenges the baseline, and AEGIS collision bounds. `ambush` must collide and must be flagged as anticipated |
 | `tests/test_properties.py` | Hypothesis property-based tests: the acceleration limit, scenario purity, mover speed bounds, collision-free A* on random maps, and whole-episode invariants |
 | `tests/test_server.py` | API endpoints, backward-compatible `/api/run`, and input validation (400/422) |
+| `tests/test_reactive.py` | Reactive baseline and three-way experiment. Basic/AEGIS results must exactly match 90 golden summaries captured before the change. Also covers backwards-compatible controller selection, all controllers sharing the environment, plan and dynamics, Reactive sharing AEGIS's perception, Reactive's behaviour before time T not changing when a mover's script changes after T, no track extrapolation, competence checks, and benchmark consistency |
 
 ## Benchmark
 
@@ -89,7 +90,60 @@ AEGIS had 0 timeouts, and there were 0 pairs where AEGIS collided but the baseli
 - **`dead_end` is a mission failure, not a success.** AEGIS stops safely because no route exists, but it does not complete the mission.
 - **The development seeds were worse.** On seeds 0–19, AEGIS collided in 2 of 20 `forklift` runs. During tuning there were also collisions in `noisy` and `overtaker`, which led to the fallback and tracking fixes. Zero collisions on 1000–1029 does not mean zero risk. Other seeds or scenario types can still cause collisions.
 - **AEGIS is slower** because it brakes, waits and detours. In the dynamic types, its mean completion time is about 7.7–10.8 s.
-- **The baseline is deliberately minimal.** A real robot stack would have at least an emergency stop, so the gap shown here is larger than it would be against a production system.
+- **The baseline is deliberately minimal.** A real robot stack would have at least an emergency stop, so the gap shown here is larger than it would be against a production system. The three-way experiment below adds a stronger reactive baseline for exactly this reason.
+
+## Three-way experiment: Basic vs Reactive vs AEGIS
+
+The Basic-vs-AEGIS figures above (including the dashboard summary) are the **original two-way experiment** and remain unchanged. This section adds a stronger comparison: a competent reactive controller that gets the same information as AEGIS but does not predict.
+
+```powershell
+.\.venv\Scripts\python.exe -m aegis --three-way --start 1000 --count 30          # table + totals
+.\.venv\Scripts\python.exe -m aegis --three-way --start 1000 --count 30 --json   # full JSON
+```
+
+### What is shared, and what differs
+
+| | Basic | Reactive | AEGIS |
+|---|---|---|---|
+| Seeded scenario, map, start/goal, mover scripts | same | same | same |
+| Dynamics (V_MAX 1.5 m/s, \|Δv\| ≤ 0.2 m/s per 100 ms) | same | same | same |
+| Nominal A* plan + pure-pursuit tracker | same | same | same |
+| Perception (6 m range, shelf occlusion, Gaussian noise stream) | none | **identical to AEGIS** | yes |
+| Least-squares tracks, pallet discovery, A* replanning, stationary-person replanning | none | **identical to AEGIS** | yes |
+| Obstacle information used for control | — | track fit at the **latest observation only** (no extrapolation) | tracks extrapolated over a 2 s forecast with growing uncertainty |
+| Decision method | follow plan | repulsive sidestep, braking-distance ray cast, ISO/TS 15066-style speed-and-separation limit using the current closing speed, emergency brake | candidate rollouts (hold 0.4 s, then max braking) checked against the forecasts, with a conservative fallback |
+| Safety margins | — | same `CLEARANCE` + 2σ noise as AEGIS | `CLEARANCE` + 2σ + forecast growth |
+
+Reactive never reads ground-truth mover scripts. A test changes a mover's script after time T and checks that Reactive's trajectory before T is identical.
+
+### Held-out results (seeds 1000–1029, 15 types × 30 = 450 episodes per controller)
+
+These were run independently in a Windows terminal after the Reactive parameters were frozen.
+
+| Controller | Collisions | Completed | Timeouts |
+|---|---|---|---|
+| Basic | 403 | 47 | 0 |
+| Reactive | 74 | 342 | 4 |
+| AEGIS | 30 | 390 | 0 |
+
+The remaining 30 episodes for Reactive and AEGIS are `dead_end` safe stops, where no route exists. Basic had no safe stops (403 + 47 = 450).
+
+Paired Reactive vs AEGIS: Reactive collided where AEGIS did not in **44** episodes. AEGIS collided where Reactive did not in **0** episodes. Both collided in 30, all `ambush`, which is unavoidable by design. AEGIS had **59.5% fewer collisions than Reactive** ((74 − 30) / 74).
+
+Per-scenario rows and the efficiency metrics (stop events, stopped time, extra time on episodes Basic finished cleanly) are printed by the command above. I didn't transcribe the held-out per-scenario rows here, so run the command to see them.
+
+### Safety-efficiency trade-off: where AEGIS does *not* win
+
+From the development run (seeds 0–19, 300 episodes per controller), where these metrics were inspected:
+- On the 40 episodes where Basic finished without a collision (so no intervention was needed), **Reactive was more efficient**. It made 10 stop events against AEGIS's 51, in 6 episodes against 18, and took +0.57 s extra on average against AEGIS's +1.59 s. AEGIS's forecast margins make it more conservative.
+- Reactive's mean completion time was lower in `head_on`, `loiter`, `overtaker` and `noisy`. Among development episodes both finished, Reactive was faster in 80 and AEGIS in 110.
+- Reactive still collided in 3 of those 40 episodes and was safer nowhere: there were 0 AEGIS-only collisions on either seed set.
+
+### Methodology caveats
+- **Held-out seeds were not fresh for the project.** Seeds 1000–1029 were already used, and their Basic/AEGIS results seen, during the original v0.2 evaluation. Reactive parameters were tuned only on seeds 0–19 and frozen before the three-way held-out run. But the developer (the Kiro agent) had seen the earlier held-out Basic/AEGIS outcomes, which may have indirectly influenced Reactive's design. A fresh seed range (e.g. 2000–2029) would be a cleaner test.
+- **This Reactive is one design, not the strongest possible.** Other reactive methods, such as velocity obstacles, DWA or social forces, might narrow the gap. Movers are scripted and adversarially timed, which penalises any controller without anticipation.
+- **Basic/AEGIS are unchanged.** 90 golden summaries captured before the change are checked exactly in `tests/test_reactive.py`.
+- **The dashboard and API still show only Basic vs AEGIS.** The three-way comparison is available through the CLI only.
 
 ## Architecture
 
@@ -133,7 +187,7 @@ All endpoints are read-only and **unauthenticated**. Inputs are bounded: `seed` 
 - The dashboard was checked headlessly (Node with a mocked DOM) and over live HTTP. It has not been checked for cross-browser compatibility or with assistive technology. Full WCAG validation needs manual testing.
 
 ## Submission checklist (not done yet)
-- [ ] Create the public GitHub repository and commit the source with the root `.kiro/` (this folder is not a git repository yet)
+- [x] Public GitHub repository with the source and root `.kiro/` (https://github.com/prathmeshb15/aegis-hackachusetts-2026)
 - [ ] Host a runnable demo
 - [ ] Record the under-3-minute demo video
 - [ ] Review `KIRO_USAGE.md` and submit on SundAI by **8 PM EDT, October 24, 2026** (pushing code is not a submission)

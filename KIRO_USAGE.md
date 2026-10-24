@@ -25,7 +25,7 @@ This was a spec-guided session: the agent worked from the existing spec files. I
 | Benchmark CLI | `aegis/__main__.py` |
 | API (bounded inputs, cached benchmark, `/api/compare`) | `server.py` |
 | Split-screen dashboard | `web/index.html` |
-| Tests (81) | `tests/test_engine.py`, `tests/test_planner.py`, `tests/test_adversarial.py`, `tests/test_properties.py`, `tests/test_server.py`, `pytest.ini` |
+| Tests (81 in v0.2; 108 with the reactive branch) | `tests/test_engine.py`, `tests/test_planner.py`, `tests/test_adversarial.py`, `tests/test_properties.py`, `tests/test_server.py`, `pytest.ini`; later `tests/test_reactive.py` |
 | Setup / deploy | `requirements.txt`, `requirements-dev.txt`, `Dockerfile`, `.dockerignore`, `.gitignore`, `README.md` |
 
 ## Testing that actually ran
@@ -42,6 +42,20 @@ This was a spec-guided session: the agent worked from the existing spec files. I
   - Noisy two-sample velocity estimates spiked. Fixed with a velocity-trust threshold and a plausibility speed cap.
 - Scenario change made during development, disclosed here: `overtaker` start times moved from 0.5–2.0 s to 1.5–3.0 s. Earlier starts spawned the walker about 0.2 m behind the robot, which is a spawn artefact rather than an overtaking test. A separate `ambush` type was added for deliberately unavoidable contact.
 
+## Later Kiro sessions
+- **Dashboard polish** (commit `5621e9b` on `main`): the agent changed only `web/index.html`. It added a benchmark summary labelled as synthetic simulation, a guided crossing/seed-7 demo whose captions come from the replay data, and a "How AEGIS works" section. The agent checked it headlessly in Node; the team reviewed it visually.
+- **Reactive baseline** (branch `feature/reactive-baseline`): the agent added a third controller, `reactive`, and a three-way CLI benchmark.
+  - **Code and tests:** `aegis/engine.py`, `aegis/constants.py`, `aegis/__main__.py`, `tests/test_reactive.py` and `tests/golden_v02_summaries.json`.
+  - **Regression fixture:** before editing the engine, the agent captured 90 Basic/AEGIS summaries from the unmodified code as a golden fixture, so the original results are checked to be byte-identical.
+  - **Fair information:** Reactive reuses AEGIS's perception, tracking, pallet discovery and replanning code. It uses only the latest observation and never forecasts.
+  - **Tuning:** Reactive was tuned only on seeds 0–19. Three weaknesses found in collision traces were fixed to avoid a strawman baseline:
+    - the speed-and-separation limit now includes the person's closing speed;
+    - the robot sidesteps off a moving person's current line;
+    - the robot brakes when it cannot stop along its current direction of motion.
+  - **Frozen before held-out:** the parameters were frozen before the held-out run.
+- **Who ran what:** the agent's terminal output capture was unreliable during this session. It often returned empty output or exit code -1 and raced with long runs. The final suite (108 passed, 19.1 s) and the held-out three-way benchmark (seeds 1000–1029) were therefore **run by the team in a Windows terminal**, and those numbers are recorded in the README. The agent ran the earlier golden-fixture check (90/90 matching) and the development benchmarks itself.
+- **Disclosure:** seeds 1000–1029 had already been used, with Basic/AEGIS results seen, in the original evaluation. So they were held out from Reactive tuning but were not fresh for the project as a whole.
+
 ## Hooks
 - Created with Kiro's hook tool: `.kiro/hooks/pytest-on-python-save.json` (PostFileSave on `aegis/`, `tests/` or `server.py` Python files → `.venv\Scripts\python.exe -m pytest -q -x`).
 - **Not yet observed firing.** Kiro reported that the hook becomes active at the next session start. Every test run listed above was started by the agent directly, not by the hook. Check it by saving a Python file in a new session.
@@ -50,4 +64,4 @@ This was a spec-guided session: the agent worked from the existing spec files. I
 No MCP servers, Powers, Kiro CLI or sub-agent crews were used. No external datasets were used.
 
 ## Still to do by the team (not done by Kiro)
-Create the public GitHub repository and commit (this folder is not a git repository yet). Host the demo. Record the under-3-minute video. Submit on SundAI. Before submitting, re-check this file against the git history.
+The public GitHub repository and Render deployment were set up by the team. Still to do: decide whether to merge `feature/reactive-baseline`, record the under-3-minute video, and submit on SundAI. Before submitting, re-check this file against the git history.

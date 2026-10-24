@@ -23,7 +23,9 @@ from math import hypot, sqrt
 
 from .constants import (A_MAX, CLEARANCE, COMMIT, DT, EPISODE_LIMIT, FIELD_H, FIELD_W, GOAL_TOL,
                         GROWTH_CAP, GROWTH_RATE, HORIZON, NOISE_K, PLANNER_INFLATION, PLANNER_RES,
-                        ROBOT_R, SENSOR_RANGE, STATIC_CLEARANCE, TRACK_COAST, UNKNOWN_VEL_GROWTH, V_MAX)
+                        REACT_INFLUENCE, REACT_K, REACT_MOVING, REACT_RAY, REACT_RAY_STEP, REACT_REP_MAX,
+                        REACT_STOP_BUFFER, REACT_T_REACT, ROBOT_R, SENSOR_RANGE, STATIC_CLEARANCE,
+                        TRACK_COAST, UNKNOWN_VEL_GROWTH, V_MAX)
 from .geometry import bounds_gap, circle_rect_gap, point_rect_distance, segment_intersects_rect
 from .planner import GridPlanner, path_length
 from .scenarios import SCENARIO_TYPES, make_scenario
@@ -134,10 +136,26 @@ class Track:
         return xb + vx * (t - tb), yb + vy * (t - tb), vx, vy, sp, sv, False
 
 
+CONTROLLERS = ('basic', 'reactive', 'aegis')
+
+
+def resolve_controller(aegis=True, controller=None):
+    """Backwards-compatible controller selection: ``controller`` wins, else ``aegis`` bool."""
+    if controller is None:
+        return 'aegis' if aegis else 'basic'
+    if controller not in CONTROLLERS:
+        raise ValueError(f'unknown controller {controller!r}; expected one of {", ".join(CONTROLLERS)}')
+    return controller
+
+
 class Simulation:
-    def __init__(self, scenario='crossing', aegis=True, seed=7, record=True):
+    def __init__(self, scenario='crossing', aegis=True, seed=7, record=True, controller=None):
+        self.controller = resolve_controller(aegis, controller)
         self.sc = make_scenario(scenario, seed)   # raises ValueError for unknown types
-        self.scenario, self.aegis, self.seed, self.record = scenario, bool(aegis), int(seed), record
+        self.scenario, self.seed, self.record = scenario, int(seed), record
+        self.aegis = self.controller == 'aegis'
+        # Reactive and AEGIS share the identical perception / tracking / replanning layer.
+        self.perceives = self.controller in ('reactive', 'aegis')
         sc = self.sc
         self.x, self.y = sc.start
         self.vx = self.vy = 0.0
@@ -171,7 +189,13 @@ class Simulation:
         self.known_statics = set()
         self.temp_blocks = {}
         self.hold_ticks = 0
-        self._log('START', f'{sc.description}. Mode: {"AEGIS" if self.aegis else "baseline (no supervisor)"}.')
+        # Stop metrics (all controllers): a "stop" is moving (>=0.05 m/s) -> stationary after start.
+        self.stop_events = 0
+        self.stopped_ticks = 0
+        self._was_moving = False
+        mode = {'aegis': 'AEGIS', 'basic': 'baseline (no supervisor)',
+                'reactive': 'reactive baseline (same sensing; braking + local avoidance, no forecasting)'}
+        self._log('START', f'{sc.description}. Mode: {mode[self.controller]}.')
         if self.no_path:
             self._log('NO_PATH', 'Prior map has no route to the goal.')
 
@@ -236,11 +260,14 @@ class Simulation:
             self._log('DETECT', f'Unmapped obstacle(s) {new} detected.')
             self._replan('New static obstacle')
 
-    def _forecasts(self):
+    def _forecasts(self, at_last_seen=False):
+        """Track estimates. AEGIS evaluates them now (coasting extrapolation); the reactive
+        controller passes ``at_last_seen=True`` so it only uses the fit at the latest
+        observation time - no extrapolation into the future."""
         sigma = self.sc.sensor_sigma
         out = []
         for tr in self.tracks.values():
-            x, y, vx, vy, sp, sv, unknown = tr.estimate(self.t, sigma)
+            x, y, vx, vy, sp, sv, unknown = tr.estimate(tr.last_seen if at_last_seen else self.t, sigma)
             out.append({'id': tr.id, 'kind': tr.kind, 'x': x, 'y': y, 'vx': vx, 'vy': vy, 'r': tr.radius,
                         'sp': sp, 'sv': sv, 'unknown': unknown, 'age': self.t - tr.last_seen})
         return out
@@ -349,6 +376,150 @@ class Simulation:
                              for f in forecasts]}
         return chosen, fallback, cx, cy, forecasts
 
+    # ------------------------------------------------------------------ reactive baseline
+    def _react(self, nx, ny, direction):
+        """Competent reactive controller using only CURRENT observations.
+
+        Same perception, tracks, noise, static discovery and replanning as AEGIS, but:
+        * obstacle positions are the track fit at the latest observation (no extrapolation);
+        * no multi-step obstacle forecast and no candidate rollouts.
+        Behaviour: (1) repulsive local avoidance with a lateral bias for obstacles ahead;
+        (2) braking-distance speed limit from a ray-cast along the commanded heading,
+        v <= -A*T + sqrt((A*T)^2 + 2*A*d_free) (one control period reaction time);
+        (3) speed-and-separation cap near people; (4) emergency brake when a person is
+        inside the margin and ahead of the robot.
+        """
+        sigma = self.sc.sensor_sigma
+        obs = self._forecasts(at_last_seen=True)
+        margin = CLEARANCE + NOISE_K * sigma
+        statics = [self.sc.statics[i] for i in sorted(self.known_statics)]
+        shelves = [r for r in self.sc.shelves if point_rect_distance(self.x, self.y, r) < REACT_RAY + 1.0]
+        speed_nom = hypot(nx, ny)
+        if direction is None:
+            sp = hypot(self.vx, self.vy)
+            direction = (self.vx / sp, self.vy / sp) if sp > 1e-6 else (1.0, 0.0)
+        ux, uy = direction
+        if self.no_path or speed_nom < 1e-9:
+            why = 'No collision-free route known: holding position.' if self.no_path else 'Nominal command is zero.'
+            self.decision = {'action': 'STOP' if self.no_path else 'PROCEED', 'rationale': why}
+            return self.decision['action'], 0.0, 0.0, obs
+
+        # (1) local avoidance from current positions of tracked people / vehicles
+        rx = ry = 0.0
+        gaps = []
+        for f in obs:
+            dx, dy = self.x - f['x'], self.y - f['y']
+            dist = max(hypot(dx, dy), 1e-6)
+            gap = dist - ROBOT_R - f['r']
+            gaps.append((gap, f, dx, dy, dist))
+            if gap >= REACT_INFLUENCE:
+                continue
+            w = REACT_K * (1.0 / max(gap, 0.05) - 1.0 / REACT_INFLUENCE)
+            rx += w * dx / dist
+            ry += w * dy / dist
+            ovx, ovy = (0.0, 0.0) if f['unknown'] else (f['vx'], f['vy'])
+            osp = hypot(ovx, ovy)
+            if osp > REACT_MOVING:
+                # Moving person: step sideways off their CURRENT line of motion (no forecast).
+                qx, qy = ovx / osp, ovy / osp
+                side = 1.0 if (qx * dy - qy * dx) > 0 else -1.0
+                rx += w * -qy * side
+                ry += w * qx * side
+            elif -(dx * ux + dy * uy) > 0:                  # static/slow obstacle ahead: sidestep
+                left_of_path = (ux * (-dy) - uy * (-dx)) > 0
+                px, py = (uy, -ux) if left_of_path else (-uy, ux)
+                rx += w * px
+                ry += w * py
+        rm = hypot(rx, ry)
+        if rm > REACT_REP_MAX:
+            rx, ry = rx * REACT_REP_MAX / rm, ry * REACT_REP_MAX / rm
+        hx, hy = ux + rx, uy + ry
+        hm = hypot(hx, hy)
+        dx_, dy_ = (hx / hm, hy / hm) if hm > 1e-6 else (ux, uy)
+
+        # (2) braking-distance limit from a ray-cast along the chosen heading
+        def gap_at(px, py):
+            out = []
+            for f in obs:
+                out.append(hypot(px - f['x'], py - f['y']) - ROBOT_R - f['r'] - margin)
+            for sx, sy, sr in statics:
+                out.append(hypot(px - sx, py - sy) - ROBOT_R - sr - STATIC_CLEARANCE)
+            for rect in shelves:
+                out.append(circle_rect_gap(px, py, ROBOT_R, rect) - STATIC_CLEARANCE)
+            out.append(bounds_gap(px, py, ROBOT_R, FIELD_W, FIELD_H) - STATIC_CLEARANCE)
+            return out
+
+        g0 = gap_at(self.x, self.y)
+        n = int(round(REACT_RAY / REACT_RAY_STEP))
+
+        def ray(hx_, hy_):
+            for k in range(1, n + 1):
+                s = k * REACT_RAY_STEP
+                gk = gap_at(self.x + hx_ * s, self.y + hy_ * s)
+                # Blocked only where clearance is violated AND moving makes it worse.
+                hit = next((i for i, (a, b) in enumerate(zip(gk, g0)) if a < 0 and a < b - 1e-9), None)
+                if hit is not None:
+                    return s - REACT_RAY_STEP, hit
+            return REACT_RAY, None
+
+        aT = A_MAX * DT
+
+        def brake_speed(d):
+            return -aT + sqrt(aT * aT + 2 * A_MAX * max(0.0, d - REACT_STOP_BUFFER))
+
+        d_free, blocker = ray(dx_, dy_)
+        v_brake = brake_speed(d_free)
+        # The robot cannot turn instantly (|dv| <= A_MAX*DT), so it must also be able to stop
+        # along its CURRENT direction of motion; otherwise brake hard.
+        cur = hypot(self.vx, self.vy)
+        overspeed = False
+        if cur > 0.05:
+            d_cur, _ = ray(self.vx / cur, self.vy / cur)
+            overspeed = cur > brake_speed(d_cur) + 0.05
+
+        # (3) speed-and-separation monitoring (ISO/TS 15066-style, current state only):
+        #     S >= v_h*(T + T_s) + c*v*T + c*v^2/(2a), with T_s = v/a the robot stopping time,
+        #     c = cos(heading, person) and v_h the person's CURRENT closing speed.
+        #     (4) emergency brake when a person is inside the margin ahead.
+        v_ssm, estop, near = float('inf'), False, None
+        for gap, f, dx, dy, dist in gaps:
+            clear = gap - margin
+            ahead = -(dx * dx_ + dy * dy_) / dist          # cos(angle) between heading and person
+            if clear < 0 and ahead > 0:
+                estop, near = True, f
+            if ahead <= 1e-3:
+                continue
+            ovx, ovy = (0.0, 0.0) if f['unknown'] else (f['vx'], f['vy'])
+            v_h = max(0.0, (ovx * dx + ovy * dy) / dist)    # person's current speed toward robot
+            room = clear - v_h * REACT_T_REACT
+            if room <= 0:
+                lim = 0.0
+            else:
+                # ISO/TS 15066 SSM with stopping time T_s = v/a, robot speed component c*v toward
+                # the person:  room >= v*(v_h/a + c*T) + c*v^2/(2a)  ->  solve for v.
+                qa, qb = ahead / (2 * A_MAX), v_h / A_MAX + ahead * REACT_T_REACT
+                lim = (-qb + sqrt(qb * qb + 4 * qa * room)) / (2 * qa)
+            if lim < v_ssm:
+                v_ssm, near = lim, f
+        cap = min(1.0, v_ssm / V_MAX)
+        v = min(speed_nom, v_brake, cap * V_MAX)
+        turned = dx_ * ux + dy_ * uy < 0.985          # > ~10 degrees off the nominal heading
+        if estop or overspeed:
+            action, v = 'EMERGENCY_STOP', 0.0
+            why = (f'{near["kind"]} #{near["id"]} inside the {margin:.2f} m margin ahead: emergency brake.'
+                   if estop else 'Cannot stop within the free distance along current motion: emergency brake.')
+        elif v < speed_nom - 0.05 or turned:
+            action = 'AVOID' if turned else 'SLOW'
+            lim = 'braking distance' if v_brake <= cap * V_MAX else 'separation cap'
+            what = 'obstacle' if blocker is None else ('person/vehicle' if blocker < len(obs) else 'static obstacle')
+            why = (f'{action}: free distance {d_free:.2f} m along heading (limit {what}); '
+                   f'speed {v:.2f} m/s limited by {lim}.')
+        else:
+            action = 'PROCEED'
+            why = f'Path clear for {d_free:.2f} m; nominal speed.'
+        self.decision = {'action': action, 'rationale': why}
+        return action, v * dx_, v * dy_, obs
+
     def _check_loiter(self, forecasts):
         """If held for 1.5 s by a near-stationary person, plan around them as a temporary obstacle."""
         if self.hold_ticks < 15:
@@ -382,12 +553,14 @@ class Simulation:
         if self.finished():
             return self.state()
         self.steps += 1
-        if self.aegis:
+        if self.perceives:
             self._perceive()
         nx, ny, direction = self.tracker.command(self.x, self.y, self.goal)
         fallback = False
         if self.aegis:
             action, fallback, cx, cy, forecasts = self._supervise(nx, ny, direction)
+        elif self.controller == 'reactive':
+            action, cx, cy, forecasts = self._react(nx, ny, direction)
         else:
             action, cx, cy = 'PROCEED', nx, ny
         if action != 'PROCEED':
@@ -396,7 +569,7 @@ class Simulation:
             self.fallback_ticks += 1
             self.last_fallback_t = self.t
         if action != self.action or (fallback and self.events[-1]['type'] != 'FALLBACK'):
-            if self.aegis:
+            if self.perceives:
                 self._log('FALLBACK' if fallback else action, self.decision['rationale'])
         self.action = action
 
@@ -409,7 +582,14 @@ class Simulation:
         self.distance += hypot(self.x - x0, self.y - y0)
         self._physics(x0, y0)
         self.t = round(self.t + DT, 4)
-        if self.aegis:
+        spd = hypot(self.vx, self.vy)
+        if spd >= 0.05:
+            self._was_moving = True
+        elif self.collision is None and not self.completed:
+            self.stopped_ticks += 1 if self._was_moving else 0
+            if self._was_moving and hypot(ovx, ovy) >= 0.05:
+                self.stop_events += 1
+        if self.perceives:
             moving = hypot(self.vx, self.vy) > 0.2
             self.hold_ticks = 0 if (action == 'PROCEED' or moving) else self.hold_ticks + 1
             self._check_loiter(forecasts)
@@ -492,10 +672,11 @@ class Simulation:
         }
         if self.record:
             s['plan'] = [list(p) for p in self.plan] if self.plan else []
-        if self.aegis:
+        if self.perceives:
             s['known_statics'] = sorted(self.known_statics)
             s['temp_blocks'] = [[round(v, 2) for v in c] for c in self.temp_blocks.values()]
             if self.decision and self.record:
+                # Reactive decisions only carry 'action' and 'rationale' (no forecasts).
                 s['decision'] = self.decision
         return s
 
@@ -511,21 +692,28 @@ class Simulation:
             'distance': round(self.distance, 2), 'max_velocity_change': round(self.max_dv, 4),
         }
 
+    def summary3(self):
+        """Summary plus three-way-experiment fields (kept separate so v0.2 summaries are unchanged)."""
+        s = self.summary()
+        s.update(controller=self.controller, stop_events=self.stop_events,
+                 stopped_time=round(self.stopped_ticks * DT, 2))
+        return s
+
 
 # ---------------------------------------------------------------------- runners
-def run_episode(scenario='crossing', aegis=True, seed=7):
-    s = Simulation(scenario, aegis, seed, record=False)
+def run_episode(scenario='crossing', aegis=True, seed=7, controller=None):
+    s = Simulation(scenario, aegis, seed, record=False, controller=controller)
     while not s.finished():
         s.tick()
-    return s.summary()
+    return s.summary() if controller is None else s.summary3()
 
 
-def replay(scenario='crossing', aegis=True, seed=7):
-    s = Simulation(scenario, aegis, seed, record=True)
+def replay(scenario='crossing', aegis=True, seed=7, controller=None):
+    s = Simulation(scenario, aegis, seed, record=True, controller=controller)
     states = [s.state()]
     while not s.finished():
         states.append(s.tick())
-    return {'states': states, 'events': s.events, 'final': s.summary()}
+    return {'states': states, 'events': s.events, 'final': s.summary() if controller is None else s.summary3()}
 
 
 def run_pair(scenario='crossing', seed=7):
@@ -580,4 +768,74 @@ def benchmark(seeds=range(1000, 1020), types=SCENARIO_TYPES):
                    'Movers do not react to the robot and many are timed adversarially at the nominal robot '
                    'schedule. Simulated 2D kinematics only; not real-robot validation.'),
         'results': rows, 'totals': totals,
+    }
+
+
+# ---------------------------------------------------------------------- three-way experiment
+def _agg(rs):
+    done = [r for r in rs if r['completed']]
+    return {
+        'collisions': sum(r['collision'] for r in rs), 'completed': len(done),
+        'timeouts': sum(r['outcome'] == 'timeout' for r in rs),
+        'safe_stops_no_path': sum(r['outcome'] == 'blocked_safe_stop' for r in rs),
+        'mean_time_completed': _mean([r['elapsed'] for r in done]),
+        'mean_interventions': _mean([r['interventions'] for r in rs]),
+        'mean_stop_events': _mean([r['stop_events'] for r in rs]),
+        'mean_stopped_time': _mean([r['stopped_time'] for r in rs]),
+    }
+
+
+def benchmark3(seeds=range(1000, 1030), types=SCENARIO_TYPES, controllers=CONTROLLERS):
+    """Basic vs Reactive vs AEGIS on identical (type, seed) scenarios.
+
+    'Unnecessary stop' proxy: in episodes where Basic completed without collision, the
+    nominal plan was collision-free for that (open-loop) scenario, so every stop and every
+    second of extra travel time by another controller was not needed for safety there.
+    """
+    seeds = list(seeds)
+    rows, all_runs = [], {c: [] for c in controllers}
+    for st in types:
+        runs = {c: [run_episode(st, seed=s, controller=c) for s in seeds] for c in controllers}
+        for c in controllers:
+            all_runs[c] += runs[c]
+        row = {'scenario': st, 'category': make_scenario(st, seeds[0]).category, 'episodes': len(seeds)}
+        row.update({c: _agg(runs[c]) for c in controllers})
+        if {'reactive', 'aegis'} <= set(controllers):
+            R, A = runs['reactive'], runs['aegis']
+            both = [(r, a) for r, a in zip(R, A) if r['completed'] and a['completed']]
+            row['reactive_vs_aegis'] = {
+                'aegis_only_collided': sum(a['collision'] and not r['collision'] for r, a in zip(R, A)),
+                'reactive_only_collided': sum(r['collision'] and not a['collision'] for r, a in zip(R, A)),
+                'both_collided': sum(r['collision'] and a['collision'] for r, a in zip(R, A)),
+                'aegis_only_completed': sum(a['completed'] and not r['completed'] for r, a in zip(R, A)),
+                'reactive_only_completed': sum(r['completed'] and not a['completed'] for r, a in zip(R, A)),
+                'both_completed': len(both),
+                'mean_time_diff_aegis_minus_reactive': _mean([a['elapsed'] - r['elapsed'] for r, a in both]),
+                'aegis_faster': sum(a['elapsed'] < r['elapsed'] - 1e-9 for r, a in both),
+                'reactive_faster': sum(r['elapsed'] < a['elapsed'] - 1e-9 for r, a in both),
+            }
+        rows.append(row)
+    totals = {c: _agg(all_runs[c]) for c in controllers}
+    totals['episodes_per_controller'] = len(seeds) * len(types)
+    if 'basic' in controllers:
+        ok = [i for i, b in enumerate(all_runs['basic']) if b['completed'] and not b['collision']]
+        totals['basic_clean_episodes'] = len(ok)
+        totals['on_basic_clean_episodes'] = {
+            c: {'stop_events': sum(all_runs[c][i]['stop_events'] for i in ok),
+                'episodes_with_a_stop': sum(all_runs[c][i]['stop_events'] > 0 for i in ok),
+                'collisions': sum(all_runs[c][i]['collision'] for i in ok),
+                'not_completed': sum(not all_runs[c][i]['completed'] for i in ok),
+                'mean_extra_time_vs_basic': _mean([all_runs[c][i]['elapsed'] - all_runs['basic'][i]['elapsed']
+                                                   for i in ok if all_runs[c][i]['completed']])}
+            for c in controllers if c != 'basic'}
+    if {'reactive', 'aegis'} <= set(controllers):
+        keys = ('aegis_only_collided', 'reactive_only_collided', 'both_collided', 'aegis_only_completed',
+                'reactive_only_completed', 'both_completed', 'aegis_faster', 'reactive_faster')
+        totals['reactive_vs_aegis'] = {k: sum(r['reactive_vs_aegis'][k] for r in rows) for k in keys}
+    return {
+        'method': (f'{len(seeds)} episodes per scenario type per controller (seeds {seeds[0]}-{seeds[-1]}); '
+                   'all controllers see the identical seeded scenario, dynamics and nominal A* tracker. '
+                   'Reactive and AEGIS share perception (range, occlusion, noise), tracking, static '
+                   'discovery and replanning; Reactive uses current observations only. Simulated 2D only.'),
+        'controllers': list(controllers), 'results': rows, 'totals': totals,
     }

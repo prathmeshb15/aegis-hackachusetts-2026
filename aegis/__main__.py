@@ -1,11 +1,17 @@
-"""Command-line benchmark: ``python -m aegis --start 1000 --count 20 [--types crossing,noisy] [--json]``."""
+"""Command-line benchmark.
+
+Original two-way (Basic vs AEGIS) experiment, unchanged:
+    python -m aegis --start 1000 --count 30 [--types crossing,noisy] [--json]
+Three-way experiment (Basic vs Reactive vs AEGIS):
+    python -m aegis --three-way --start 1000 --count 30 [--json]
+"""
 from __future__ import annotations
 
 import argparse
 import json
 import time
 
-from .engine import benchmark
+from .engine import benchmark, benchmark3
 from .scenarios import SCENARIO_TYPES
 
 
@@ -19,15 +25,49 @@ def _fmt(row):
             f"{'-' if t is None else t} |")
 
 
+def _d(x):
+    return '-' if x is None else x
+
+
+def _print3(res):
+    print(res['method'])
+    cs = res['controllers']
+    print('| Scenario | Cat. | ' + ' | '.join(f'{c} coll.' for c in cs) + ' | ' +
+          ' | '.join(f'{c} done' for c in cs) + ' | ' + ' | '.join(f'{c} time' for c in cs) + ' | ' +
+          ' | '.join(f'{c} stops' for c in cs) + ' | R-only coll. | A-only coll. |')
+    print('|' + '---|' * (2 + 4 * len(cs) + 2))
+    for r in res['results']:
+        n = r['episodes']
+        rva = r.get('reactive_vs_aegis', {})
+        print(f"| {r['scenario']} | {r['category']} | " +
+              ' | '.join(f"{r[c]['collisions']}/{n}" for c in cs) + ' | ' +
+              ' | '.join(f"{r[c]['completed']}/{n}" for c in cs) + ' | ' +
+              ' | '.join(f"{_d(r[c]['mean_time_completed'])}" for c in cs) + ' | ' +
+              ' | '.join(f"{_d(r[c]['mean_stop_events'])}" for c in cs) + ' | ' +
+              f"{rva.get('reactive_only_collided', '-')} | {rva.get('aegis_only_collided', '-')} |")
+    print('\nTotals:')
+    print(json.dumps(res['totals'], indent=1))
+
+
 def main():
-    ap = argparse.ArgumentParser(description='Run the paired AEGIS vs baseline benchmark.')
+    ap = argparse.ArgumentParser(description='Run the paired AEGIS benchmarks.')
     ap.add_argument('--start', type=int, default=1000)
     ap.add_argument('--count', type=int, default=20)
     ap.add_argument('--types', default=','.join(SCENARIO_TYPES))
+    ap.add_argument('--three-way', action='store_true', help='Basic vs Reactive vs AEGIS')
     ap.add_argument('--json', action='store_true')
     args = ap.parse_args()
     t0 = time.perf_counter()
-    res = benchmark(range(args.start, args.start + args.count), tuple(args.types.split(',')))
+    seeds, types = range(args.start, args.start + args.count), tuple(args.types.split(','))
+    if args.three_way:
+        res = benchmark3(seeds, types)
+        if args.json:
+            print(json.dumps(res, indent=1))
+        else:
+            _print3(res)
+            print(f'Runtime {time.perf_counter() - t0:.1f} s.')
+        return
+    res = benchmark(seeds, types)
     dt = time.perf_counter() - t0
     if args.json:
         print(json.dumps(res, indent=1))
