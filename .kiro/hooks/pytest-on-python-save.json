@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Run AEGIS tests on Python save",
+      "trigger": "PostFileSave",
+      "description": "Runs the full pytest suite (unit, adversarial, Hypothesis property tests, API) whenever an engine, test or server Python file is saved.",
+      "matcher": "(aegis|tests)[\\\\/].*\\.py$|server\\.py$",
+      "action": {
+        "type": "command",
+        "command": ".\\.venv\\Scripts\\python.exe -m pytest -q -x -p no:cacheprovider",
+        "timeout": 180
+      }
+    }
+  ]
+}

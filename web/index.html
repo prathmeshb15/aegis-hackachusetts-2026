@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AEGIS · Predictive Robotics Safety</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:#080f1c;color:#edf4ff;--line:#27384f;--card:#101c2d;--muted:#96a7bf;--ok:#4bdfad;--bad:#ff7d83;--warn:#f0bc58;--accent:#38b9f7}
+*{box-sizing:border-box}body{margin:0}
+header{padding:16px 28px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{font-weight:900;letter-spacing:3px;color:#8dd0ff}
+.pill{display:inline-block;border-radius:30px;padding:4px 11px;background:#153b51;color:#8ad7fa;font-size:12px;font-weight:600}
+main{max-width:1500px;margin:auto;padding:18px 24px}
+h1{font-size:26px;margin:0 0 4px}h2{font-size:16px;margin:0}h3{font-size:14px;margin:14px 0 8px;color:#c9d7e8}
+.muted{color:var(--muted)}small{color:var(--muted)}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:14px 0}
+.bar label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+select,input,button{font:inherit;font-size:14px;background:#182b42;color:#f1f7ff;border:1px solid #40516a;border-radius:8px;padding:8px 11px}
+button{cursor:pointer}button:hover{border-color:#6c88aa}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:#1776b4;border-color:#299cdd;font-weight:700}
+input[type=number]{width:96px}input[type=range]{flex:1;min-width:200px;padding:0;accent-color:var(--accent)}
+.toggles{display:flex;gap:12px;font-size:13px;color:#c2d0e2}.toggles label{flex-direction:row;align-items:center;color:#c2d0e2;font-size:13px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+canvas{display:block;width:100%;height:auto;background:#091524;border:1px solid #263c55;border-radius:8px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+.metric{background:#0b1726;padding:8px 10px;border:1px solid #29415b;border-radius:8px;font-size:12px;color:var(--muted)}
+.metric b{display:block;font-size:18px;color:#edf4ff;margin-top:2px}
+.st-ok{background:#123d31;color:var(--ok)}.st-bad{background:#4a1820;color:var(--bad)}.st-warn{background:#43341a;color:var(--warn)}.st-run{background:#153b51;color:#8ad7fa}
+.lower{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-top:16px}
+#rationale{font-size:14px;line-height:1.45;min-height:42px}
+table{border-collapse:collapse;width:100%;font-size:13px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #2c3c52}th{color:#9fb3ce;font-weight:600}
+td.num{font-variant-numeric:tabular-nums}
+tr.chosen td{background:#14304a}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+#events{list-style:none;padding:0;margin:0;font-size:12.5px;color:#b6c7d8;max-height:250px;overflow:auto}
+#events li{border-bottom:1px solid #22344a;padding:6px 0}#events .tag{font-weight:700;margin-right:6px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:#9ab0c9;margin-top:8px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.bench{margin-top:16px}.bench table td,.bench table th{padding:6px 7px}
+.kbd{font-family:ui-monospace,monospace;font-size:11px;border:1px solid #40516a;border-radius:4px;padding:1px 5px}
+@media(max-width:1000px){.split,.lower{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">⬡ AEGIS <span class="pill">RESEARCH PROTOTYPE · SIMULATION ONLY</span></div>
+  <small>HACKACHUSETTS 2026 · ROBOTICS &amp; HARDWARE</small>
+</header>
+<main>
+  <h1>Predict failure. Protect the mission.</h1>
+  <p class="muted" style="margin:0">Same seeded warehouse, same pedestrians, same robot dynamics. Left: nominal autonomy stack alone. Right: with the AEGIS predictive safety supervisor.</p>
+
+  <div class="bar" role="toolbar" aria-label="Scenario controls">
+    <label>Scenario<select id="scenario" aria-label="Scenario type"></select></label>
+    <label>Seed<input id="seed" type="number" min="0" max="1000000" value="7" aria-label="Random seed"></label>
+    <button id="dice" title="Random seed" aria-label="Pick a random seed">🎲</button>
+    <button class="primary" id="run">▶ Run paired replay</button>
+    <button id="play" aria-label="Play or pause">Ⅱ Pause</button>
+    <button id="back" aria-label="Step back one frame">◀ Step</button>
+    <button id="fwd" aria-label="Step forward one frame">Step ▶</button>
+    <button id="jump" title="Jump to first AEGIS intervention">⚑ First intervention</button>
+    <label>Speed<select id="speed" aria-label="Playback speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+    <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Replay time">
+    <span id="clock" class="pill" aria-live="polite">t = 0.0 s</span>
+    <div class="toggles">
+      <label><input type="checkbox" id="showForecast" checked> Forecasts</label>
+      <label><input type="checkbox" id="showPlan" checked> Planned path</label>
+      <label><input type="checkbox" id="showSensor"> Sensor range</label>
+    </div>
+  </div>
+  <p id="desc" class="muted" style="margin:-4px 0 12px;font-size:13px"></p>
+
+  <div class="split">
+    <section class="card" aria-labelledby="hb">
+      <div class="head"><h2 id="hb">Baseline <span class="muted" style="font-weight:400">· A* on prior map, no supervisor</span></h2><span id="st-b" class="pill">READY</span></div>
+      <canvas id="cv-b" width="720" height="600" role="img" aria-label="Baseline robot simulation"></canvas>
+      <div class="metrics" id="m-b"></div>
+    </section>
+    <section class="card" aria-labelledby="ha">
+      <div class="head"><h2 id="ha">AEGIS <span class="muted" style="font-weight:400">· predictive supervisor + replanning</span></h2><span id="st-a" class="pill">READY</span></div>
+      <canvas id="cv-a" width="720" height="600" role="img" aria-label="AEGIS robot simulation"></canvas>
+      <div class="metrics" id="m-a"></div>
+    </section>
+  </div>
+  <div class="legend" aria-hidden="true">
+    <span><i class="sw" style="background:#55b8ff"></i>Robot + velocity</span>
+    <span><i class="sw" style="background:#f0bc58"></i>Pedestrian</span>
+    <span><i class="sw" style="background:#ff8a4c"></i>Forklift</span>
+    <span><i class="sw" style="background:#c98b5a"></i>Unmapped pallet (dashed = not yet detected by AEGIS)</span>
+    <span><i class="sw" style="background:#4edba5"></i>Goal / A* plan</span>
+    <span><i class="sw" style="background:#b48cff"></i>AEGIS forecast: chosen manoeuvre + inflated obstacle disks (0–2 s)</span>
+  </div>
+
+  <div class="lower">
+    <section class="card" aria-labelledby="hd">
+      <div class="head"><h2 id="hd">AEGIS decision at this frame</h2><span id="act" class="pill">—</span></div>
+      <p id="rationale" aria-live="polite">Run a replay to see the supervisor's reasoning.</p>
+      <table aria-label="Candidate manoeuvres evaluated this frame">
+        <thead><tr><th>Candidate</th><th>Worst forecast slack</th><th>At</th><th>Limiting object</th><th>Verdict</th></tr></thead>
+        <tbody id="cands"></tbody>
+      </table>
+      <p class="muted" style="font-size:12px">Each candidate is held for 0.4 s then followed by maximum braking (2.0 m/s²), simulated with the same acceleration limit as the robot. Slack = predicted clearance minus required margin (0.15 m + forecast growth + 2σ noise). Candidates are tried in preference order; the first with slack ≥ 0 wins. If none qualifies the supervisor falls back to the brake/evade manoeuvre with the largest slack and logs it.</p>
+    </section>
+    <section class="card" aria-labelledby="he">
+      <div class="head"><h2 id="he">Event log (up to this frame)</h2><small id="evcount"></small></div>
+      <ul id="events"></ul>
+    </section>
+  </div>
+
+  <section class="card bench" aria-labelledby="hbm">
+    <div class="head" style="gap:12px;flex-wrap:wrap">
+      <div><h2 id="hbm">Paired benchmark</h2><small>Every row runs baseline and AEGIS on identical seeded scenarios. Computed live on the server.</small></div>
+      <div style="display:flex;gap:8px;align-items:center"><label class="muted" style="font-size:12px">Pairs/type <select id="bcount"><option>5</option><option selected>10</option><option>20</option><option>30</option></select></label><button id="bench">Run benchmark</button></div>
+    </div>
+    <div id="results" class="muted">Not run yet.</div>
+  </section>
+
+  <p class="muted" style="font-size:12px;margin-top:16px">Scope: 2D holonomic disk robot with acceleration limit, scripted non-reactive movers, occlusion by shelves, optional Gaussian position noise, constant-velocity forecasts with growing uncertainty disks, discrete candidate safety filter, grid A*. Not learned perception, not calibrated probability, not certified or validated on hardware. Keyboard: <span class="kbd">Space</span> play/pause, <span class="kbd">←</span>/<span class="kbd">→</span> step.</p>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+let data = null, frame = 0, maxFrame = 0, timer = null, playing = false, firstIntervention = null;
+const cvs = {b: $('#cv-b'), a: $('#cv-a')};
+const W = 720, H = 600, PAD = 6;
+let scale = 1;
+
+function esc(s){return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function P(x, y){return [PAD + x * scale, H - PAD - y * scale];}
+function circle(ctx, x, y, r, fill, stroke, dash){const [px, py] = P(x, y);ctx.beginPath();ctx.arc(px, py, Math.max(1, r * scale), 0, Math.PI * 2);if (fill){ctx.fillStyle = fill;ctx.fill();}if (stroke){ctx.setLineDash(dash || []);ctx.strokeStyle = stroke;ctx.lineWidth = 2;ctx.stroke();ctx.setLineDash([]);}}
+function poly(ctx, pts, color, width, dash){if (!pts || pts.length < 2) return;ctx.beginPath();pts.forEach((p, i) => {const [x, y] = P(p[0], p[1]);i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);});ctx.setLineDash(dash || []);ctx.strokeStyle = color;ctx.lineWidth = width;ctx.stroke();ctx.setLineDash([]);}
+
+function statusOf(s){
+  if (s.outcome === 'collision') return ['COLLISION', 'st-bad'];
+  if (s.outcome === 'completed') return ['GOAL REACHED', 'st-ok'];
+  if (s.outcome === 'blocked_safe_stop') return ['NO PATH · SAFE STOP', 'st-warn'];
+  if (s.outcome === 'timeout') return ['TIMEOUT', 'st-warn'];
+  return ['RUNNING', 'st-run'];
+}
+
+function draw(side, run, i){
+  const ctx = cvs[side].getContext('2d'), sc = data.scenario;
+  const s = run.states[Math.min(i, run.states.length - 1)];
+  scale = Math.min((W - 2 * PAD) / sc.field[0], (H - 2 * PAD) / sc.field[1]);
+  ctx.clearRect(0, 0, W, H);
+  // grid
+  ctx.strokeStyle = '#14243a';ctx.lineWidth = 1;
+  for (let x = 0; x <= sc.field[0]; x++){const [a, b] = P(x, 0), [, c] = P(x, sc.field[1]);ctx.beginPath();ctx.moveTo(a, b);ctx.lineTo(a, c);ctx.stroke();}
+  for (let y = 0; y <= sc.field[1]; y++){const [a, b] = P(0, y), [c] = P(sc.field[0], y);ctx.beginPath();ctx.moveTo(a, b);ctx.lineTo(c, b);ctx.stroke();}
+  // shelves
+  sc.shelves.forEach(r => {const [x0, y1] = P(r[0], r[1]), [x1, y0] = P(r[2], r[3]);ctx.fillStyle = '#1c2e45';ctx.fillRect(x0, y0, x1 - x0, y1 - y0);ctx.strokeStyle = '#2f4766';ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);});
+  if ($('#showSensor').checked && side === 'a') circle(ctx, s.robot[0], s.robot[1], data.constants.sensor_range, null, '#2a4d6e', [3, 6]);
+  // unmapped pallets
+  const known = new Set(s.known_statics || []);
+  (data.statics || []).forEach((c, k) => {
+    const detected = side === 'a' ? known.has(k) : false;
+    if (side === 'a' && !detected) circle(ctx, c[0], c[1], c[2], 'rgba(201,139,90,0.18)', '#c98b5a', [5, 4]);
+    else circle(ctx, c[0], c[1], c[2], '#8a5f3e', '#c98b5a');
+  });
+  (s.temp_blocks || []).forEach(c => circle(ctx, c[0], c[1], c[2], null, '#f0bc5888', [2, 4]));
+  // goal and plan
+  circle(ctx, sc.goal[0], sc.goal[1], 0.25, null, '#4edba5');circle(ctx, sc.goal[0], sc.goal[1], 0.08, '#4edba5');
+  if ($('#showPlan').checked) poly(ctx, s.plan, '#4edba5aa', 2, [7, 6]);
+  // trail
+  const trail = run.states.slice(0, Math.min(i, run.states.length - 1) + 1).map(x => x.robot);
+  poly(ctx, trail, '#38b9f7', 2.5);
+  // forecasts
+  const d = s.decision;
+  if (side === 'a' && d && $('#showForecast').checked){
+    d.forecast_obstacles.forEach(f => f.disks.forEach((k, j) => circle(ctx, k[0], k[1], k[2], null, `rgba(180,140,255,${0.65 - j * 0.12})`, [3, 3])));
+    poly(ctx, [s.robot].concat(d.forecast_robot), d.fallback ? '#ff7d83' : '#b48cff', 3);
+    d.forecast_robot.forEach(p => circle(ctx, p[0], p[1], 0.04, d.fallback ? '#ff7d83' : '#b48cff'));
+  }
+  // movers
+  s.movers.forEach(m => {
+    circle(ctx, m.pos[0], m.pos[1], m.r, m.kind === 'forklift' ? '#ff8a4c' : '#f0bc58');
+    const [x, y] = P(m.pos[0], m.pos[1]);ctx.fillStyle = '#0b1420';ctx.font = 'bold 11px system-ui';ctx.textAlign = 'center';ctx.fillText(m.id, x, y + 4);
+  });
+  // robot
+  const hit = s.outcome === 'collision';
+  circle(ctx, s.robot[0], s.robot[1], data.constants.robot_r, hit ? '#ff6778' : '#55b8ff', hit ? '#ffd0d5' : '#d6eeff');
+  const [rx, ry] = P(s.robot[0], s.robot[1]);const [vx, vy] = P(s.robot[0] + s.velocity[0] * 0.6, s.robot[1] + s.velocity[1] * 0.6);
+  ctx.beginPath();ctx.moveTo(rx, ry);ctx.lineTo(vx, vy);ctx.strokeStyle = '#ffffff';ctx.lineWidth = 2;ctx.stroke();
+  if (hit){ctx.beginPath();ctx.arc(rx, ry, 30, 0, Math.PI * 2);ctx.strokeStyle = '#ff6778';ctx.lineWidth = 3;ctx.stroke();}
+  ctx.fillStyle = '#f1f7ff';ctx.font = 'bold 13px system-ui';ctx.textAlign = 'center';ctx.fillText(side === 'a' ? 'AEGIS' : 'BASE', rx, ry - 20);
+  // status + metrics
+  const [label, cls] = statusOf(s);const st = $('#st-' + side);st.textContent = label;st.className = 'pill ' + cls;
+  const mc = s.min_clearance_dynamic;
+  $('#m-' + side).innerHTML =
+    `<div class="metric">Time<b>${s.t.toFixed(1)} s</b></div>` +
+    `<div class="metric">Speed<b>${s.speed.toFixed(2)} m/s</b></div>` +
+    `<div class="metric">Min clearance to movers<b class="${mc !== null && mc < 0 ? 'bad' : ''}">${mc === null ? '—' : mc.toFixed(2) + ' m'}</b></div>` +
+    `<div class="metric">Intervention ticks<b>${s.interventions}</b></div>`;
+  cvs[side].setAttribute('aria-label', `${side === 'a' ? 'AEGIS' : 'Baseline'} at ${s.t.toFixed(1)} s: ${label}`);
+  return s;
+}
+
+function render(){
+  if (!data) return;
+  draw('b', data.baseline, frame);
+  const s = draw('a', data.aegis, frame);
+  $('#scrub').value = frame;
+  $('#clock').textContent = `t = ${(frame * data.constants.dt).toFixed(1)} s`;
+  const d = s.decision;
+  if (d){
+    const a = $('#act');a.textContent = d.fallback ? 'FALLBACK · ' + d.action : d.action;
+    a.className = 'pill ' + (d.fallback ? 'st-bad' : d.action === 'PROCEED' ? 'st-ok' : 'st-warn');
+    $('#rationale').textContent = d.rationale;
+    $('#cands').innerHTML = d.candidates.map(c => `<tr class="${c.name === d.action ? 'chosen' : ''}"><td>${c.name}</td><td class="num ${c.safe ? 'ok' : 'bad'}">${c.slack >= 0 ? '+' : ''}${c.slack.toFixed(2)} m</td><td class="num">+${c.t.toFixed(1)} s</td><td>${esc(c.culprit || '—')}</td><td>${c.safe ? 'safe' : 'rejected'}${c.name === d.action ? ' ✓ chosen' : ''}</td></tr>`).join('') +
+      (d.candidates.length < 7 && !d.fallback ? `<tr><td colspan="5" class="muted">Lower-preference candidates not evaluated (an earlier one was safe).</td></tr>` : '');
+  } else {
+    $('#act').textContent = s.outcome === 'running' ? '—' : statusOf(s)[0];
+    $('#rationale').textContent = frame === 0 ? 'Initial state. Press play or step forward.' : 'Episode ended; showing final state.';
+    $('#cands').innerHTML = '';
+  }
+  const t = frame * data.constants.dt + 1e-6;
+  const evs = data.aegis.events.map(e => ({...e, who: 'AEGIS'})).concat(data.baseline.events.filter(e => ['COLLISION', 'GOAL', 'TIMEOUT'].includes(e.type)).map(e => ({...e, who: 'BASE'})))
+    .filter(e => e.t <= t).sort((x, y) => y.t - x.t);
+  const color = ty => ({COLLISION: '#ff7d83', FALLBACK: '#ff7d83', GOAL: '#4bdfad', REPLAN: '#4edba5', NO_PATH: '#f0bc58', DETECT: '#8ad7fa', PROCEED: '#4bdfad'}[ty] || '#f0bc58');
+  $('#events').innerHTML = evs.map(e => `<li><span class="muted">${e.t.toFixed(1)}s</span> <span class="tag" style="color:${color(e.type)}">[${e.who}] ${e.type}</span>${esc(e.message)}</li>`).join('') || '<li>No events yet.</li>';
+  $('#evcount').textContent = `${evs.length} event(s)`;
+}
+
+function setPlaying(p){
+  playing = p;$('#play').textContent = p ? 'Ⅱ Pause' : '▶ Play';
+  if (timer) clearInterval(timer);timer = null;
+  if (p){
+    if (frame >= maxFrame) frame = 0;
+    timer = setInterval(() => {if (frame < maxFrame){frame++;render();} else setPlaying(false);}, 100 / Number($('#speed').value));
+  }
+}
+
+async function load(){
+  setPlaying(false);
+  const st = $('#scenario').value, seed = Math.max(0, Math.min(1000000, parseInt($('#seed').value || '0', 10)));
+  $('#seed').value = seed;
+  $('#st-a').textContent = $('#st-b').textContent = 'LOADING';
+  try {
+    const r = await fetch(`/api/compare?scenario=${encodeURIComponent(st)}&seed=${seed}`);
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    data = await r.json();
+  } catch (e){
+    $('#rationale').textContent = 'Failed to load: ' + e.message;return;
+  }
+  data.statics = data.scenario.statics || [];
+  maxFrame = Math.max(data.baseline.states.length, data.aegis.states.length) - 1;
+  $('#scrub').max = maxFrame;frame = 0;
+  firstIntervention = data.aegis.states.findIndex(s => s.decision && s.decision.action !== 'PROCEED');
+  const p = data.scenario;
+  $('#desc').innerHTML = `<b>${esc(p.type)}</b> (${esc(p.category)}) · ${esc(p.description)} · seed ${p.seed}` + (p.sensor_sigma ? ` · sensor σ = ${p.sensor_sigma} m` : '') +
+    ` · Baseline: <b>${esc(data.baseline.final.outcome)}</b> · AEGIS: <b>${esc(data.aegis.final.outcome)}</b>`;
+  render();setPlaying(true);
+}
+
+async function bench(){
+  const btn = $('#bench');btn.disabled = true;btn.textContent = 'Running…';
+  $('#results').textContent = 'Running paired episodes on the server (cached after the first run)…';
+  try {
+    const r = await fetch(`/api/benchmark?count=${$('#bcount').value}`);
+    const d = await r.json();
+    const f = (x, n) => `${x}/${n}`;
+    $('#results').innerHTML = `<table><thead><tr><th>Scenario</th><th>Category</th><th>Baseline collisions</th><th>AEGIS collisions</th><th>Baseline completed</th><th>AEGIS completed</th><th>AEGIS timeouts</th><th>AEGIS safe stop (no path)</th><th>Pairs AEGIS avoided a baseline collision</th><th>Both collided</th><th>AEGIS-only collision</th><th>AEGIS mean time (completed)</th></tr></thead><tbody>` +
+      d.results.map(x => `<tr><td><a href="#" data-s="${x.scenario}" style="color:#8dd0ff">${x.scenario}</a></td><td>${x.category}</td><td class="num">${f(x.baseline.collisions, x.pairs)}</td><td class="num ${x.aegis.collisions ? 'bad' : 'ok'}">${f(x.aegis.collisions, x.pairs)}</td><td class="num">${f(x.baseline.completed, x.pairs)}</td><td class="num">${f(x.aegis.completed, x.pairs)}</td><td class="num">${x.aegis.timeouts}</td><td class="num">${x.aegis.safe_stops_no_path}</td><td class="num">${x.paired.aegis_safe_where_baseline_collided}</td><td class="num">${x.paired.both_collided}</td><td class="num">${x.paired.aegis_only_collided}</td><td class="num">${x.aegis.mean_time_completed ?? '—'}${x.aegis.mean_time_completed ? ' s' : ''}</td></tr>`).join('') +
+      `</tbody></table><p class="muted" style="font-size:12px">Totals over ${d.totals.pairs} pairs — baseline collisions ${d.totals.baseline_collisions}, AEGIS collisions ${d.totals.aegis_collisions}; completed ${d.totals.baseline_completed} vs ${d.totals.aegis_completed}. ${esc(d.method)}</p>`;
+    document.querySelectorAll('#results a[data-s]').forEach(a => a.onclick = ev => {ev.preventDefault();$('#scenario').value = a.dataset.s;$('#seed').value = 1000;load();window.scrollTo({top: 0, behavior: 'smooth'});});
+  } catch (e){
+    $('#results').textContent = 'Benchmark failed: ' + e.message;
+  } finally {btn.disabled = false;btn.textContent = 'Run benchmark';}
+}
+
+async function init(){
+  const list = await (await fetch('/api/scenarios')).json();
+  const groups = {};
+  list.forEach(s => (groups[s.category] = groups[s.category] || []).push(s));
+  $('#scenario').innerHTML = Object.entries(groups).map(([g, xs]) => `<optgroup label="${esc(g)}">` + xs.map(s => `<option value="${s.type}" title="${esc(s.description)}">${s.type}</option>`).join('') + '</optgroup>').join('');
+  $('#scenario').value = 'crossing';
+  load();
+}
+
+$('#run').onclick = load;
+$('#scenario').onchange = load;
+$('#seed').onchange = load;
+$('#dice').onclick = () => {$('#seed').value = Math.floor(Math.random() * 100000);load();};
+$('#play').onclick = () => setPlaying(!playing);
+$('#back').onclick = () => {setPlaying(false);frame = Math.max(0, frame - 1);render();};
+$('#fwd').onclick = () => {setPlaying(false);frame = Math.min(maxFrame, frame + 1);render();};
+$('#jump').onclick = () => {setPlaying(false);if (firstIntervention > 0){frame = Math.max(0, firstIntervention - 1);render();} else $('#rationale').textContent = 'AEGIS never intervened in this episode.';};
+$('#scrub').oninput = e => {setPlaying(false);frame = Number(e.target.value);render();};
+$('#speed').onchange = () => {if (playing) setPlaying(true);};
+['#showForecast', '#showPlan', '#showSensor'].forEach(id => $(id).onchange = render);
+$('#bench').onclick = bench;
+document.addEventListener('keydown', e => {
+  if (['INPUT', 'SELECT'].includes(document.activeElement.tagName)) return;
+  if (e.code === 'Space'){e.preventDefault();setPlaying(!playing);}
+  if (e.code === 'ArrowRight'){$('#fwd').click();}
+  if (e.code === 'ArrowLeft'){$('#back').click();}
+});
+init();
+</script>
+</body>
+</html>
